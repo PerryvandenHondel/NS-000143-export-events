@@ -162,7 +162,7 @@ begin
 end; // of function LastRunPut.
 
 
-function RunLogparser(sPath: string; sEventLog: string): integer;
+function RunLogparser(sPathLpr: string; sEventLog: string): integer;
 //
 //	Run Logparser.exe for a specfic Event Log.
 //
@@ -183,11 +183,11 @@ begin
 	//sPath := GetPathExport(sEventLog, sDateTimeLast);
 	
 	
-	WriteLn('RunLogparser(): Exporting events from ''' + sEventLog + ''' with date time range from ' + sDateTimeLast + ' - ' + sDateTimeNow + ' into export file ''' + sPath + '''.');
+	WriteLn('RunLogparser(): Exporting events from ''' + sEventLog + ''' with date time range from ' + sDateTimeLast + ' - ' + sDateTimeNow + ' into export file ''' + sPathLpr + '''.');
 	
 	//WriteLn('sDateTimeLast=', sDateTimeLast);
 	//WriteLn('sDateTimeNow=', sDateTimeNow);
-	//WriteLn('sPath=', sPath);
+	//WriteLn('sPathLpr=', sPathLpr);
 	
 	// logparser.exe -i:EVT -o:TSV 
 	// "SELECT TimeGenerated,EventId,EventType,REPLACE_STR(Strings,'\u000d\u000a','|') AS Strings FROM \\NS00DC066\Security WHERE TimeGenerated>'2015-06-02 13:48:00' AND TimeGenerated<='2015-06-02 13:48:46'" -stats:OFF -oSeparator:"|" 
@@ -198,7 +198,7 @@ begin
 	c := c + 'FROM '+ sEventLog + ' ';
 	c := c + 'WHERE TimeGenerated>''' + sDateTimeLast + ''' AND TimeGenerated<=''' + sDateTimeNow + '''" ';
 	c := c + '-stats:OFF -oSeparator:"|" ';
-	c := c + '>' + sPath;
+	c := c + '>' + sPathLpr;
 	
 	WriteLn('Running:');
 	WriteLn;
@@ -237,24 +237,27 @@ end; // of procedure ProgInit()
 
 procedure ProgRun();
 var
-	sPath: string;
+	sPathLpr: string;
+	sPathSkv: string;
 	iResultLogparser: integer;
 	iFileSize: integer;
 begin
 	//WriteLn(GetPathOfPidFile());
 	
-	sPath := GetProgramFolder + '\' + gsUniqueSessionId + EXTENSION_LPR;
-	iResultLogparser := RunLogparser(sPath, 'Security');
+	sPathLpr := GetProgramFolder + '\' + gsUniqueSessionId + EXTENSION_LPR;
+	iResultLogparser := RunLogparser(sPathLpr, 'Security');
 	if iResultLogparser = 0 then
 	begin
-		iFileSize := GetFileSizeInBytes(sPath);
+		iFileSize := GetFileSizeInBytes(sPathLpr);
 		if iFileSize > 0 then
 		begin
-			WriteLn('Logparser output file ' + sPath + ' contains data, start converting.');
+			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
+			sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
+			WriteLn('sPathSkv=', sPathSkv);
 		end
 		else
 		begin
-			WriteLn('Logparser output file ' + sPath + ' is empty');
+			WriteLn('Logparser output file ' + sPathLpr + ' is empty');
 		end; // of if iFileSize
 	end // of if iResultLogparser
 	else
