@@ -18,10 +18,11 @@ program ExportEvents;
 
 
 uses
-  Classes, 
-  Process, 
-  SysUtils,
-  USupportLibrary;
+	Crt,
+	Classes, 
+	Process, 
+	SysUtils,
+	USupportLibrary;
   
   
 const
@@ -34,12 +35,13 @@ const
 	ID = 					'143';
 	EXTENSION_LPR = 		'.lpr';
 	EXTENSION_SKV = 		'.skv';
-	MAX_RANDOM_STRING = 	32;
+	MAX_RANDOM_STRING = 	16;
 
 
 var
 	gsComputerName: string;
-	gsUniqueId:	string;
+	gsUniqueSessionId: string;		// Unique session id for this run.
+	gsPathPid: string;				// Path of the PID (Process ID) file.
 
 	
 	
@@ -87,12 +89,19 @@ end; // of function GetPathExport
 	
 
 function GetPathLastRun(sEventLog: string): string;
+{
+	Create a path fro the lastrun file containing the date time of the last run.
+}
 begin
 	GetPathLastRun := GetProgramFolder() + '\' + gsComputerName + '-' + sEventLog + '.lrd';
 end; // of function GetPathLastRun
 
 
 function LastRunGet(sEventLog: string): string;
+{
+	Returns the date and time in proper format YYYY-MM-DD HH:MM:SS back from a file in variable sPath
+	When the file does not exist, create one, otherwise read the datatime in the file.
+}
 var
 	sPath: string;
 	f: TextFile;
@@ -126,6 +135,9 @@ end;
 
 
 function LastRunPut(sEventLog: string): string;
+{
+	Put the current date time using Now() in the file sPath.
+}
 var
 	sPath: string;
 	f: TextFile;
@@ -150,7 +162,7 @@ begin
 end; // of function LastRunPut.
 
 
-function RunLogparser(sEventLog: string): integer;
+function RunLogparser(sPath: string; sEventLog: string): integer;
 //
 //	Run Logparser.exe for a specfic Event Log.
 //
@@ -159,22 +171,23 @@ function RunLogparser(sEventLog: string): integer;
 var
 	p: TProcess;	// Process
 	c: AnsiString;		// Command Line
-	sPath: AnsiString;
 	sDateTimeLast: string;
 	sDateTimeNow: string;
 	
 begin
 	WriteLn;
-	WriteLn('RunLogparser(): ' + sEventLog);
+	//WriteLn('RunLogparser(): ' + sEventLog);
 
 	sDateTimeLast := LastRunGet(sEventLog);
 	sDateTimeNow := LastRunPut(sEventLog);
 	//sPath := GetPathExport(sEventLog, sDateTimeLast);
-	sPath := GetProgramFolder + '\' + gsUniqueId + EXTENSION_LPR;
 	
-	WriteLn('sDateTimeLast=', sDateTimeLast);
-	WriteLn('sDateTimeNow=', sDateTimeNow);
-	WriteLn('sPath=', sPath);
+	
+	WriteLn('RunLogparser(): Exporting events from ''' + sEventLog + ''' with date time range from ' + sDateTimeLast + ' - ' + sDateTimeNow + ' into export file ''' + sPath + '''.');
+	
+	//WriteLn('sDateTimeLast=', sDateTimeLast);
+	//WriteLn('sDateTimeNow=', sDateTimeNow);
+	//WriteLn('sPath=', sPath);
 	
 	// logparser.exe -i:EVT -o:TSV 
 	// "SELECT TimeGenerated,EventId,EventType,REPLACE_STR(Strings,'\u000d\u000a','|') AS Strings FROM \\NS00DC066\Security WHERE TimeGenerated>'2015-06-02 13:48:00' AND TimeGenerated<='2015-06-02 13:48:46'" -stats:OFF -oSeparator:"|" 
@@ -187,7 +200,6 @@ begin
 	c := c + '-stats:OFF -oSeparator:"|" ';
 	c := c + '>' + sPath;
 	
-	WriteLn(Length(c));
 	WriteLn('Running:');
 	WriteLn;
 	WriteLn(c);
@@ -204,8 +216,6 @@ begin
 	
 	RunLogparser := p.ExitStatus;
 	
-	//WriteLn('FileSize=', FileSize(sPath));
-	
 	
 end; // of procedure GetAllDomainTrusts
 	
@@ -214,16 +224,43 @@ end; // of procedure GetAllDomainTrusts
 	
 procedure ProgInit();
 begin
+	// Get the computer name of where this program is running.
 	gsComputerName := GetCurrentComputerName();
 	
-	gsUniqueId := GetRandomString(MAX_RANDOM_STRING);
-
+	// Generate a unique session ID for this run of the program.
+	gsUniqueSessionId := GetRandomString(MAX_RANDOM_STRING);
+	
+	// Create a PID (Process ID) file for the run of this program.
+	gsPathPid := GetPathOfPidFile();
 end; // of procedure ProgInit()
 
 
 procedure ProgRun();
+var
+	sPath: string;
+	iResultLogparser: integer;
+	iFileSize: integer;
 begin
-	WriteLn('RUNLOGPARSER() RETURNS: ', RunLogparser('Security'));
+	//WriteLn(GetPathOfPidFile());
+	
+	sPath := GetProgramFolder + '\' + gsUniqueSessionId + EXTENSION_LPR;
+	iResultLogparser := RunLogparser(sPath, 'Security');
+	if iResultLogparser = 0 then
+	begin
+		iFileSize := GetFileSizeInBytes(sPath);
+		if iFileSize > 0 then
+		begin
+			WriteLn('Logparser output file ' + sPath + ' contains data, start converting.');
+		end
+		else
+		begin
+			WriteLn('Logparser output file ' + sPath + ' is empty');
+		end; // of if iFileSize
+	end // of if iResultLogparser
+	else
+	begin
+		WriteLn('ERROR running Logparser, error: ', iResultLogparser);
+	end;
 	//WriteLn(GetPathLastRun('Security'));
 	//WriteLn('LAST RUN GET = ', LastRunGet('Security'));
 	//WriteLn('LAST RUN PUT = ', LastRunPut('Security'));
@@ -235,6 +272,8 @@ end; // of procedure ProgRun()
 
 procedure ProgDone();
 begin
+	// Delete the Process ID file.
+	DeleteFile(gsPathPid);
 end; // of procedure ProgDone()
 
 
