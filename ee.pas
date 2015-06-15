@@ -5,6 +5,7 @@
 //		function GetPathLastRun(sEventLog: string): string;
 //		function LastRunGet(sEventLog: string): string;
 //		function RunLogparser(sEventLog: string): integer;
+//		procedure DoConvert(const sPathLpr: string);
 //		procedure ProgDone();
 //		procedure ProgInit();
 //		procedure ProgRun();
@@ -42,6 +43,7 @@ var
 	gsComputerName: string;
 	gsUniqueSessionId: string;		// Unique session id for this run.
 	gsPathPid: string;				// Path of the PID (Process ID) file.
+	gbDoConvert: boolean;			//
 
 	
 	
@@ -215,11 +217,25 @@ begin
 	p.Execute;
 	
 	RunLogparser := p.ExitStatus;
-	
-	
-end; // of procedure GetAllDomainTrusts
-	
+end; // of procedure RunLogparser
 
+
+procedure DoConvert(const sPathLpr: string);
+var
+	sPathSkv: string;
+begin
+	WriteLn('DoConvert(): ' + sPathLpr);
+	
+	sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
+	WriteLn('sPathSkv=' + sPathSkv);
+	WriteLn;
+end;
+
+
+procedure ProgTest();
+begin
+	DoConvert('R:\GitRepos\NS-000143-export-events\OYFQzMNkWIh1UGio.lpr');
+end;
 	
 	
 procedure ProgInit();
@@ -232,13 +248,15 @@ begin
 	
 	// Create a PID (Process ID) file for the run of this program.
 	gsPathPid := GetPathOfPidFile();
+	
+	
+	gbDoConvert := true;
 end; // of procedure ProgInit()
 
 
 procedure ProgRun();
 var
 	sPathLpr: string;
-	sPathSkv: string;
 	iResultLogparser: integer;
 	iFileSize: integer;
 begin
@@ -252,12 +270,17 @@ begin
 		if iFileSize > 0 then
 		begin
 			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
-			sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
-			WriteLn('sPathSkv=', sPathSkv);
+			
+			
+			if gbDoConvert = true then
+				DoConvert(sPathLpr);
+			
 		end
 		else
 		begin
 			WriteLn('Logparser output file ' + sPathLpr + ' is empty');
+			// Delete the empty file.
+			DeleteFile(sPathLpr);
 		end; // of if iFileSize
 	end // of if iResultLogparser
 	else
@@ -282,6 +305,7 @@ end; // of procedure ProgDone()
 
 begin
 	ProgInit();
-	ProgRun();
+	//ProgRun();
+	ProgTest();
 	ProgDone();
 end. // of program ExportEvents
