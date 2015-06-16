@@ -2,19 +2,27 @@
 //
 	PROCEDURES AND FUNCTIONS:
 		function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
+		function GetEventType(eventType: integer): string;
+		function GetKeyName(eventId: integer; position: integer): string;
+		function GetKeyType(eventId: integer; position: integer): boolean;
 		function GetPathExport(sEventLog: string; sDateTime: string): string;
 		function GetPathLastRun(sEventLog: string): string;
 		function LastRunGet(sEventLog: string): string;
+		function ProcessThisEvent(e: integer): boolean;
 		function RunLogparser(sEventLog: string): integer;
 		procedure DoConvert(const sPathLpr: string);
 		procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean);
+		procedure EventIncreaseCount(SearchEventId: word);
 		procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word);
 		procedure EventRecordShow();
+		procedure ProcessEvent(eventId: integer; la: TStringArray);
+		procedure ProcessLine(lineCount: integer; l: AnsiString);
 		procedure ProgDone();
 		procedure ProgInit();
 		procedure ProgRun();
 		procedure ReadEventDefinitionFile(p : string);
 		procedure ReadEventDefinitionFiles();
+		procedure WriteDebug(s : string);
 
 }
 
@@ -45,9 +53,9 @@ const
 	EXTENSION_LPR = 			'.lpr';
 	EXTENSION_SKV = 			'.skv';
 	MAX_RANDOM_STRING = 		16;
-	//SEPARATOR_CSV =			';';
-	SEPARATOR_CSV = 			#59;		// ;
-	STEP_MOD =					3137;		// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
+	SEPARATOR_CSV = 			';';			// Semicolon (;)
+	SEPARATOR_PSV = 			'|';			// Pipe Separator symbol (|)
+	STEP_MOD =					127;			// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
 	
 	
 type
@@ -80,11 +88,128 @@ var
 	gsUniqueSessionId: string;		// Unique session id for this run.
 	gsPathPid: string;				// Path of the PID (Process ID) file.
 	gbDoConvert: boolean;			//
-
 	EventDetailArray: TEventDetailArray;
 	EventArray: TEventArray;
 	EventFound: TEventFoundArray;
+	tfLpr: CTextFile;
+	tfSkv: CTextFile;
+	blnDebug: boolean;
+	blnSkipComputerAccount: boolean;
+	intCountAccountComputer: longint;
 
+
+procedure WriteDebug(s : string);
+begin
+	if blnDebug = true then
+		Writeln('DEGUG:', Chr(9), s);
+end;  // of procedure WriteDebug	
+	
+	
+function GetKeyName(eventId: integer; position: integer): string;
+{
+	Returns the KeyName of a valid position
+}
+var
+	i: integer;
+	r: string;
+begin
+	r := '';
+	//WriteLn('GetKeyName(', eventId, ',', position, ')');
+	
+	for i := 0 to High(EventDetailArray) do
+	begin
+		if (eventId = EventDetailArray[i].eventId) then
+		begin
+			//WriteLn(Chr(9), IntToStr(EventDetailArray[i].position));
+			if position = EventDetailArray[i].position then
+			begin
+				r := EventDetailArray[i].keyName;
+				//if EventDetailArray[i].isActive = true then
+				//begin
+					//WriteLn('FOUND FOR EVENTID ', eventId, ' AND ACTIVE KEYNAME ON POSITION ', position);
+				//end;
+			end;
+		end;
+	end;
+	GetKeyName := r;
+end; // of function GetKeyName
+
+
+procedure EventIncreaseCount(SearchEventId: word);
+var
+	newCount: integer;
+	i: integer;
+begin
+	for i := 0 to High(EventArray) do
+	begin
+		if EventArray[i].eventId = SearchEventId then
+		begin
+			newCount := EventArray[i].count + 1;
+			EventArray[i].count := newCount
+		end; // of procedure EventIncreaseCount
+	end;
+end; // of procedure EventIncreaseCount
+
+
+function GetEventType(eventType: integer): string;
+{
+	Returns the Event Type string for a EventType
+
+	1		ERROR
+	2		WARNING
+	3		INFO
+	4		SUCCESS	AUDIT
+	5		FAILURE AUDIT
+	
+	Source: https://msdn.microsoft.com/en-us/library/aa394226%28v=vs.85%29.aspx
+}	
+var
+	r: string;
+begin
+	r := '';
+	
+	case eventType of
+		1: r := 'ERR';	// Error
+		2: r := 'WRN';	// Warning
+		4: r := 'INF';	// Information
+		8: r := 'AUS';	// Audit Success
+		16: r := 'AUF';	// Audit Failure
+	else
+		r := 'UKN';		// Unknown Note: should never be seen.
+	end;
+	GetEventType := r;
+end; // of function GetEventType
+
+
+function GetKeyType(eventId: integer; position: integer): boolean;
+{
+	Returns the KeyType of a valid position
+}
+var
+	i: integer;
+	r: boolean;
+begin
+	r := false;
+	//WriteLn('GetKeyName(', eventId, ',', position, ')');
+	
+	for i := 0 to High(EventDetailArray) do
+	begin
+		if (eventId = EventDetailArray[i].eventId) then
+		begin
+			//WriteLn(Chr(9), IntToStr(EventDetailArray[i].position));
+			if position = EventDetailArray[i].position then
+				r := EventDetailArray[i].isString;
+			//begin
+				//if EventDetailArray[i].isActive = true then
+				//begin
+					//WriteLn('FOUND FOR EVENTID ', eventId, ' AND ACTIVE KEYNAME ON POSITION ', position);
+				//end;
+			//end;
+		end;
+	end;
+	GetKeyType := r;
+end; // of function GetKeyType	
+	
 	
 procedure EventRecordShow();
 var
@@ -378,7 +503,6 @@ var
 	c: AnsiString;		// Command Line
 	sDateTimeLast: string;
 	sDateTimeNow: string;
-	
 begin
 	WriteLn;
 	//WriteLn('RunLogparser(): ' + sEventLog);
@@ -423,6 +547,141 @@ begin
 end; // of procedure RunLogparser
 
 
+procedure ProcessEvent(eventId: integer; la: TStringArray);
+var
+	x: integer;
+	strKeyName: string;
+	s: string;
+	buffer: AnsiString;
+	intPosDollar: integer;		// Position of dollar sign in computer name
+	intPosAccount: integer;		// Position of acc key name
+begin
+	WriteDebug('-----------------------');
+	WriteDebug('ProcessEvent(): ' + IntToStr(eventId));
+	buffer := la[0] + ' ' + GetEventType(StrToInt(la[2])) + ' eid=' + IntToStr(eventId) + ' ';
+	
+	// Testing
+	{
+	for x := 0 To High(la) do
+	begin
+		WriteLn('ProcessEvent():', Chr(9), Chr(9), x, ':', Chr(9), la[x]);
+	end;
+	}
+	
+	for x := 0 to High(la) do
+	begin
+		//WriteLn(Chr(9), x, Chr(9), eventId, Chr(9), la[x]);
+		strKeyName := GetKeyName(eventId, x);
+		if Length(strKeyName) > 0 then
+		begin
+			s := GetKeyName(eventId, x);
+			s := s + '=';
+			if GetKeyType(eventId, x) = true then
+				s := s + Chr(34) + la[x] + Chr(34)
+			else
+				s := s + la[x];
+			
+			WriteDebug('KeyValue:' + s);
+			
+			// Check for key field 'acc' and dollar sign in value
+			intPosDollar := Pos('$"', s);
+			intPosAccount := Pos('acc=', s);
+						
+			WriteDebug('intPosDollar=' + IntToStr(intPosDollar));
+			WriteDebug('intPosAccount=' + IntToStr(intPosAccount));
+			WriteDebug('blnSkipComputerAccount=' + BoolToStr(blnSkipComputerAccount));
+			
+			if (intPosDollar > 0) and (intPosAccount > 0) and (blnSkipComputerAccount = true) then
+			begin	
+				WriteDebug('DO NOT WRITE THIS LINE');
+				Inc(intCountAccountComputer);
+				Exit; // Exit function ProcessEvent
+			end;
+			
+			buffer := buffer + s + ' ';
+		end;
+	end; // of for x := 0 to High(la) do
+	
+	// Update the counter of processed events.
+	EventIncreaseCount(eventId);
+	
+	tfSkv.WriteToFile(buffer);
+end; // of function ProcessEvent
+
+
+
+
+function ProcessThisEvent(e: integer): boolean;
+{
+	Read the events from the EventArray.
+	Return the status for isActive.
+	
+	Returns
+		TRUE		Process this event.
+		FALSE		Do not process this event.
+}
+var
+	i: integer;
+	r: boolean;
+begin
+	r := false;
+	
+	//WriteLn;
+	//WriteLn('ProcessThisEvent(): e=', e);
+	for i := 0 to High(EventArray) do
+	begin
+		//WriteLn(i, chr(9), EventArray[i].eventId, Chr(9), EventArray[i].isActive);
+		if EventArray[i].eventId = e then
+		begin
+			r := true;
+			//WriteLn('FOUND ', e, ' ON POS ', i);
+			break;
+			// Found the event e in the array, return the isActive state
+			//r := EventArray[i].isActive;
+			//break;
+		end;
+	end;
+	//WriteLn('ShouldEventBeProcessed():', Chr(9), e, Chr(9), r);
+	ProcessThisEvent := r;
+end;
+
+
+procedure ProcessLine(lineCount: integer; l: AnsiString);
+{
+	Process a line 
+}
+var
+	lineArray: TStringArray;
+	eventId: integer;
+begin
+	if Pos('TimeGenerated|', l) > 0 then
+		Exit;	//	When the text 'TimeGenerated|' occurs in the line it's a header line, skip it by exiting this procedure.
+		
+	if Length(l) > 0 then
+	begin
+		//WriteLn(lineCount, ' ', l);
+
+		// Set the lineArray on 0 to clear it
+		SetLength(lineArray, 0);
+		
+		// Split the line into the lineArray
+		lineArray := SplitString(l, SEPARATOR_PSV);
+		
+		// Obtain the eventId from the lineArray on position 4.
+		eventId := StrToInt(lineArray[1]);	// The Event Id is always found at the 1st position
+		//Writeln(lineCount, Chr(9), l);
+		//WriteLn(Chr(9), eventId);
+		
+		if ProcessThisEvent(eventId) = true then
+		begin
+			// Write only the events to the SKV file that have a EVD (Event Definition) file present.
+			ProcessEvent(eventId, lineArray);
+		end;
+		SetLength(lineArray, 0);
+	end; // if Length(l) > 0 then
+end; // of procedure ProcessLine()
+
+
 procedure DoConvert(const sPathLpr: string);
 {
 	Do a file conversion of a Logparser export (lpr) to a Splunk Key-Values (skv) file.
@@ -431,8 +690,6 @@ var
 	intCurrentLine: integer;		// Line counter
 	sPathSkv: string;
 	strLine: AnsiString;			// Buffer for the read line, can be longer then 255 chars so AnsiString;
-	tfLpr: CTextFile;
-	tfSkv: CTextFile;
 begin
 	WriteLn('DoConvert(): ' + sPathLpr);
 	
@@ -461,21 +718,22 @@ begin
 		intCurrentLine := tfLpr.GetCurrentLine();
 		//WriteLn(intCurrentLine, Chr(9), strLine);
 		
-		//ProcessLine(intCurrentLine, strLine);
-		WriteLn(intCurrentLine, '|', strLine);
+		ProcessLine(intCurrentLine, strLine);
+		//WriteLn(intCurrentLine, '|', strLine);
 			
 		WriteMod(intCurrentLine, STEP_MOD); // In USupport Library
 	until tfLpr.GetEof();
 	tfLpr.CloseFile();
 	
 	tfSkv.CloseFile();
-	WriteLn;
 end;
 
 
 procedure ProgTest();
+			
 begin
 	DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
+	DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
 end;
 	
 	
@@ -490,8 +748,10 @@ begin
 	// Create a PID (Process ID) file for the run of this program.
 	gsPathPid := GetPathOfPidFile();
 	
-	
 	gbDoConvert := true;
+	
+	blnSkipComputerAccount := true;
+	blnDebug := false;
 end; // of procedure ProgInit()
 
 
@@ -545,7 +805,7 @@ end; // of procedure ProgDone()
 
 begin
 	ProgInit();
-	//ProgRun();
-	ProgTest();
+	ProgRun();
+	//ProgTest();
 	ProgDone();
 end. // of program ExportEvents
