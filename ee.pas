@@ -1,15 +1,22 @@
-// ee.pas
-
-//		function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
-//		function GetPathExport(sEventLog: string; sDateTime: string): string;
-//		function GetPathLastRun(sEventLog: string): string;
-//		function LastRunGet(sEventLog: string): string;
-//		function RunLogparser(sEventLog: string): integer;
-//		procedure DoConvert(const sPathLpr: string);
-//		procedure ProgDone();
-//		procedure ProgInit();
-//		procedure ProgRun();
+{// ee.pas
 //
+	PROCEDURES AND FUNCTIONS:
+		function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
+		function GetPathExport(sEventLog: string; sDateTime: string): string;
+		function GetPathLastRun(sEventLog: string): string;
+		function LastRunGet(sEventLog: string): string;
+		function RunLogparser(sEventLog: string): integer;
+		procedure DoConvert(const sPathLpr: string);
+		procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean);
+		procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word);
+		procedure EventRecordShow();
+		procedure ProgDone();
+		procedure ProgInit();
+		procedure ProgRun();
+		procedure ReadEventDefinitionFile(p : string);
+		procedure ReadEventDefinitionFiles();
+
+}
 
 
 program ExportEvents;
@@ -23,28 +30,224 @@ uses
 	Classes, 
 	Process, 
 	SysUtils,
-	USupportLibrary;
+	USupportLibrary,
+	UTextFile;
   
-  
+ 
 const
-	CHAR_TAB = 				#9;
-	CHAR_CR =				#13;
-	CHAR_LF = 				#10;
-	CRLF = 					#13#10;
-	VERSION =				'01';
-	DESCRIPTION =			'ExportEvents';
-	ID = 					'143';
-	EXTENSION_LPR = 		'.lpr';
-	EXTENSION_SKV = 		'.skv';
-	MAX_RANDOM_STRING = 	16;
+	TAB = 						#9;
+	CHAR_CR =					#13;
+	CHAR_LF = 					#10;
+	CRLF = 						#13#10;
+	VERSION =					'01';
+	DESCRIPTION =				'ExportEvents';
+	ID = 						'143';
+	EXTENSION_LPR = 			'.lpr';
+	EXTENSION_SKV = 			'.skv';
+	MAX_RANDOM_STRING = 		16;
+	//SEPARATOR_CSV =			';';
+	SEPARATOR_CSV = 			#59;		// ;
+	STEP_MOD =					3137;		// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
+	
+	
+type
+	// Type definition of the Event Records
+	TEventRecord = record
+		eventId: integer;
+		description: string;
+		count: integer;
+		osVersion: word;
+	end;
+	TEventArray = array of TEventRecord;
 
-
+	TEventDetailRecord = record
+		eventId: integer;           // Event number
+		keyName: string;            // Key name under Splunk
+		position: word;       	   	// Position in the Logparser string
+		isString: boolean;          // Save value as string (True=String, False=number)
+	end;
+    TEventDetailArray = array of TEventDetailRecord;
+	
+	TEventFoundRecord = record
+		eventId: integer;
+		count: integer;
+	end;
+	TEventFoundArray = array of TEventFoundRecord;
+	
+	
 var
 	gsComputerName: string;
 	gsUniqueSessionId: string;		// Unique session id for this run.
 	gsPathPid: string;				// Path of the PID (Process ID) file.
 	gbDoConvert: boolean;			//
 
+	EventDetailArray: TEventDetailArray;
+	EventArray: TEventArray;
+	EventFound: TEventFoundArray;
+
+	
+procedure EventRecordShow();
+var
+	i: integer;
+begin
+	WriteLn();
+	WriteLn('EVENTARRAY:');
+
+	for i := 0 to High(EventArray) do
+	begin
+		//Writeln(IntToStr(i) + Chr(9) + ' ' + IntToStr(EventArray[i].eventId) + Chr(9), EventArray[i].isActive, Chr(9) + IntToStr(EventArray[i].osVersion) + Chr(9) + EventArray[i].description);
+		Writeln(IntToStr(i) + ' ' + IntToStr(EventArray[i].eventId) + ' ' + IntToStr(EventArray[i].osVersion) + ' ' + EventArray[i].description);
+	end;
+end; // of procedure EventRecordShow	
+
+
+procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean); // V06
+{
+		
+	EventId;KeyName;Position;IsString;IsActive
+
+	Add a new record in the array of EventDetail
+  
+	newEventId      integer		The event id to search for
+	newKeyName  	string		Description of the event
+	newPostion  	integer		Integer of version 2003/2008
+	newIsString		boolean		Is this a string value
+									TRUE	Process as an string
+									FALSE	Process this as an number
+	newIsActive		boolean		Is tris an active event detail; 
+									TRUE=process this 
+									FALSE = Do not process this
+}
+var
+	size: integer;
+begin
+	size := Length(EventDetailArray);
+	SetLength(EventDetailArray, size + 1);
+	EventDetailArray[size].eventId := newEventId;
+	EventDetailArray[size].keyName := newKeyName;
+	EventDetailArray[size].position := newPostion;
+	EventDetailArray[size].isString := newIsString;
+	//EventDetailArray[size].isActive := newIsActive;
+	//EventDetailArray[size].convertAction := newConvertAction;
+	
+end; // of procedure EventDetailRecordAdd
+
+	
+procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word); // V06
+{
+
+	EventId;Description;OsVersion;IsActive
+
+	Add a new record in the array of Event
+  
+	newEventId      word		The event id to search for
+	newDescription  string		Description of the event
+	newOsVersion    integer		Integer of version 2003/2008
+	newIsActive		boolean		Is this an active event, 
+									TRUE	Process this event.
+									FALSE	Do not process this event.
+									
+}
+var
+	size: integer;
+begin
+	size := Length(EventArray);
+	SetLength(EventArray, size + 1);
+	EventArray[size].eventId := newEventId;
+	EventArray[size].osVersion := newOsVersion;
+	EventArray[size].description := newDescription;
+	EventArray[size].count := 0;
+	//EventArray[size].isActive := newIsActive;
+end; // of procedure EventRecordAdd
+	
+	
+procedure ReadEventDefinitionFile(p : string);
+var
+	//strEvent: string;
+	//intEvent: integer;
+	//strFilename: string;
+	tf: CTextFile; 		// Text File
+	l: string;			// Line Buffer
+	x: integer;			// Line Counter
+	a: TStringArray;	// Array
+begin
+	//WriteLn('ReadEventDefinitionFile: ==> ', p);
+	
+	//WriteLn(ExtractFileName(p)); // Get the file name with the extension.
+	
+	// Get the file name from the path p.
+	//strFilename := ExtractFileName(p);
+	
+	//WriteLn(ExtractFileExt(p));
+	// Get the event id from the file name by removing the extension from the file name.
+	//strEvent := ReplaceText(strFilename, ExtractFileExt(p), '');
+	
+	//WriteLn(strEvent);
+	// Convert the string with Event ID to a integer.
+	//intEvent := StrToInt(strEvent);
+	//WriteLn(intEvent);
+	
+	
+	
+	//WriteLn('CONTENTS OF ', p);
+	tf := CTextFile.Create(p);
+	tf.OpenFileRead();
+	repeat
+		l := tf.ReadFromFile();
+		If Length(l) > 0 Then
+		begin
+			//WriteLn(l);
+			x := tf.GetCurrentLine();
+			a := SplitString(l, SEPARATOR_CSV);
+			if x = 1 then
+			begin
+				//WriteLn('FIRST LINE!');
+				//WriteLn(Chr(9), l);
+				//EventRecordAdd(StrToInt(a[0]), a[1], StrToInt(a[2]), StrToBool(a[3])); // V05
+				EventRecordAdd(StrToInt(a[0]), a[1], StrToInt(a[2])); // V06
+			end
+			else
+			begin
+				//WriteLn('BIGGER > 1');
+				//WriteLn(Chr(9), l);
+				//EventDetailRecordAdd(StrToInt(a[0]), a[1], StrToInt(a[2]), StrToBool(a[3]), StrToBool(a[4]), a[5]); // V05
+				EventDetailRecordAdd(StrToInt(a[0]), a[1], StrToInt(a[2]), StrToBool(a[3])); // V06
+			end;
+			//WriteLn(x, Chr(9), l);
+		end;
+	until tf.GetEof();
+	tf.CloseFile();
+	
+	//WriteLn;
+end; // of procedure ReadEventDefinitionFile
+
+
+procedure ReadEventDefinitionFiles();
+{
+	Read the .EVD files and place the values is an array.
+}
+var	
+	sr : TSearchRec;
+	count : Longint;
+begin
+	count:=0;
+	
+	SetLength(EventArray, 0);
+	SetLength(EventDetailArray, 0);
+	
+	if FindFirst(GetProgramFolder() + '\*.evd', faAnyFile and faDirectory, sr) = 0 then
+    begin
+    repeat
+		Inc(count);
+		with sr do
+		begin
+			ReadEventDefinitionFile(GetProgramFolder() + '\' + name);
+        end;
+		until FindNext(sr) <> 0;
+    end;
+	FindClose(sr);
+	Writeln ('Found ', count, ' event definitions to process.');
+end; // of procedure ReadAllEventDefinitions	
 	
 	
 function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
@@ -221,20 +424,58 @@ end; // of procedure RunLogparser
 
 
 procedure DoConvert(const sPathLpr: string);
+{
+	Do a file conversion of a Logparser export (lpr) to a Splunk Key-Values (skv) file.
+}
 var
+	intCurrentLine: integer;		// Line counter
 	sPathSkv: string;
+	strLine: AnsiString;			// Buffer for the read line, can be longer then 255 chars so AnsiString;
+	tfLpr: CTextFile;
+	tfSkv: CTextFile;
 begin
 	WriteLn('DoConvert(): ' + sPathLpr);
 	
 	sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
 	WriteLn('sPathSkv=' + sPathSkv);
+	
+	// Read all event definition files in the array.
+	ReadEventDefinitionFiles();
+	// Debug
+	EventRecordShow();
+	
+	// Delete any existing output Splunk SKV file.
+	if FileExists(sPathSkv) = true then
+	begin
+		//WriteLn('WARNING: File ' + pathSplunk + ' found, deleted it.');
+		DeleteFile(sPathSkv);
+	end;
+	
+	tfSkv := CTextFile.Create(sPathSkv);
+	tfSkv.OpenFileWrite();
+	
+	tfLpr := CTextFile.Create(sPathLpr);
+	tfLpr.OpenFileRead();
+	repeat
+		strLine := tfLpr.ReadFromFile();
+		intCurrentLine := tfLpr.GetCurrentLine();
+		//WriteLn(intCurrentLine, Chr(9), strLine);
+		
+		//ProcessLine(intCurrentLine, strLine);
+		WriteLn(intCurrentLine, '|', strLine);
+			
+		WriteMod(intCurrentLine, STEP_MOD); // In USupport Library
+	until tfLpr.GetEof();
+	tfLpr.CloseFile();
+	
+	tfSkv.CloseFile();
 	WriteLn;
 end;
 
 
 procedure ProgTest();
 begin
-	DoConvert('R:\GitRepos\NS-000143-export-events\OYFQzMNkWIh1UGio.lpr');
+	DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
 end;
 	
 	
@@ -271,10 +512,9 @@ begin
 		begin
 			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
 			
-			
 			if gbDoConvert = true then
+				// The flag for conversion is true, do an conversion of LPR to SKV.
 				DoConvert(sPathLpr);
-			
 		end
 		else
 		begin
