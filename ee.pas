@@ -1,28 +1,38 @@
-{// ee.pas
-//
+{
+	PROGRAM:
+		export-events-and-convert-for-splunk
+		
+	STEPS:
+		1) Export Events with Logparser.exe.
+		2) Convert Logparser output (LPR) to Splunk Key-Values (SKV) file.
+		3) Transfer both generated files, LPR for archiving and SKV for indexing, to the Splunk server.
+
 	PROCEDURES AND FUNCTIONS:
-		function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
-		function GetEventType(eventType: integer): string;
-		function GetKeyName(eventId: integer; position: integer): string;
-		function GetKeyType(eventId: integer; position: integer): boolean;
-		function GetPathExport(sEventLog: string; sDateTime: string): string;
-		function GetPathLastRun(sEventLog: string): string;
-		function LastRunGet(sEventLog: string): string;
-		function ProcessThisEvent(e: integer): boolean;
-		function RunLogparser(sEventLog: string): integer;
-		procedure DoConvert(const sPathLpr: string);
-		procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean);
-		procedure EventIncreaseCount(SearchEventId: word);
-		procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word);
-		procedure EventRecordShow();
-		procedure ProcessEvent(eventId: integer; la: TStringArray);
-		procedure ProcessLine(lineCount: integer; l: AnsiString);
-		procedure ProgDone();
-		procedure ProgInit();
-		procedure ProgRun();
-		procedure ReadEventDefinitionFile(p : string);
-		procedure ReadEventDefinitionFiles();
-		procedure WriteDebug(s : string);
+		function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string
+		function GetEventType(eventType: integer): string
+		function GetKeyName(eventId: integer; position: integer): string
+		function GetKeyType(eventId: integer; position: integer): boolean
+		function GetPathExport(sEventLog: string; sDateTime: string): string
+		function GetPathLastRun(sEventLog: string): string
+		function LastRunGet(sEventLog: string): string
+		function ProcessThisEvent(e: integer): boolean
+		function RunLogparser(sEventLog: string): integer
+		procedure DoConvert(const sPathLpr: string)
+		procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean)
+		procedure EventFoundAdd(newEventId: integer)
+		procedure EventFoundStats()
+		procedure EventIncreaseCount(SearchEventId: word)
+		procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word)
+		procedure EventRecordShow()
+		procedure ProcessEvent(eventId: integer; la: TStringArray)
+		procedure ProcessLine(lineCount: integer; l: AnsiString)
+		procedure ProgDone()
+		procedure ProgInit()
+		procedure ProgRun()
+		procedure ReadEventDefinitionFile(p : string)
+		procedure ReadEventDefinitionFiles()
+		procedure ShowStatistics()
+		procedure WriteDebug(s : string)
 
 }
 
@@ -76,13 +86,7 @@ type
 	end;
     TEventDetailArray = array of TEventDetailRecord;
 	
-	TEventFoundRecord = record
-		eventId: integer;
-		count: integer;
-	end;
-	TEventFoundArray = array of TEventFoundRecord;
-	
-	
+
 var
 	gsComputerName: string;
 	gsUniqueSessionId: string;		// Unique session id for this run.
@@ -90,7 +94,6 @@ var
 	gbDoConvert: boolean;			//
 	EventDetailArray: TEventDetailArray;
 	EventArray: TEventArray;
-	EventFound: TEventFoundArray;
 	tfLpr: CTextFile;
 	tfSkv: CTextFile;
 	blnDebug: boolean;
@@ -104,6 +107,57 @@ begin
 		Writeln('DEGUG:', Chr(9), s);
 end;  // of procedure WriteDebug	
 	
+	
+procedure ShowStatistics();
+const
+	W_EVENT = 10;
+	W_COUNT = 10;
+	W_DESC = 50;
+	
+var
+	i: integer;
+	totalEvents: integer;
+begin
+	totalEvents := 0;
+	
+	WriteLn();
+	
+	WriteLn('STATISTICS:');
+	//tfLog.WriteToFile('STATISTICS:');
+	
+	WriteLn();
+	//tfLog.WriteToFile('');
+	
+	WriteLn(AlignLeft('Event ID:', W_EVENT) + ' ' + AlignLeft('Amount:', W_COUNT) + ' ' +  AlignLeft('Event Description:', W_DESC));
+	WriteLn(StringOfChar('-', W_EVENT) + ' ' + StringOfChar('-', W_COUNT) + ' ' + StringOfChar('-', W_DESC));
+	
+	//tfLog.WriteToFile('Evt' + Chr(9) + 'Number' + Chr(9) + 'Description');
+	
+	//tfLog.WriteToFile('----' + Chr(9) + '------' + Chr(9) + '--------------------------------------');
+	
+	for i := 0 to High(EventArray) do
+	begin
+		//WriteLn('record: ' + IntToStr(i));
+		WriteLn(AlignRight(EventArray[i].eventId, W_EVENT) + ' ' + AlignRight(EventArray[i].count, W_COUNT) + ' ' + AlignLeft(EventArray[i].description, W_DESC));
+		//Writeln(EventArray[i].eventId:4, Chr(9), EventArray[i].count:6, Chr(9), EventArray[i].description, ' (', EventArray[i].osVersion, ')');
+		//tfLog.WriteToFile(IntToStr(EventArray[i].eventId) + Chr(9) + IntToStr(EventArray[i].count) + Chr(9) + EventArray[i].description + ' (' + IntToStr(EventArray[i].osVersion) + ')');
+		
+		totalEvents := totalEvents + EventArray[i].count;
+	end;
+	WriteLn;
+	//tfLog.WriteToFile('');
+	
+	WriteLn('Total of events ', totalEvents, ' converted.');
+	if blnSkipComputerAccount = true then
+	begin
+		Writeln('Skipped ', intCountAccountComputer, ' computer accounts');
+	end;
+	
+	//tfLog.WriteToFile('Total of events ' +  IntToStr(totalEvents) + ' converted.');
+	
+	WriteLn;
+end; // of procedure ShowStatistics
+
 	
 function GetKeyName(eventId: integer; position: integer): string;
 {
@@ -560,6 +614,8 @@ begin
 	WriteDebug('ProcessEvent(): ' + IntToStr(eventId));
 	buffer := la[0] + ' ' + GetEventType(StrToInt(la[2])) + ' eid=' + IntToStr(eventId) + ' ';
 	
+	//EventFoundAdd(eventId);
+	
 	// Testing
 	{
 	for x := 0 To High(la) do
@@ -726,14 +782,27 @@ begin
 	tfLpr.CloseFile();
 	
 	tfSkv.CloseFile();
+	
+	//EventFoundStats();
 end;
 
 
 procedure ProgTest();
-			
 begin
-	DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
-	DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
+	//DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
+	//DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
+	
+	
+	WriteLn('                                                                                                   1');
+	WriteLn('         1         2         3         4         5         6         7         8         9         0');
+	WriteLn('1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890');
+	WriteLn(AlignRight('Aligment right test', 80));
+	WriteLn(AlignRight(1832644, 80));
+	
+	WriteLn(AlignRight('Aligmen jhksgkj afgkjhafd gjkha gfdjhk ajkgdft test', 20));
+	WriteLn(AlignLeft('Aligment left test', 80) + 'THE NEXT TEXT');
+	WriteLn(AlignLeft(176543, 80) + 'THE NEXT TEXT');
+	
 end;
 	
 	
@@ -752,6 +821,10 @@ begin
 	
 	blnSkipComputerAccount := true;
 	blnDebug := false;
+	
+	// Initialize the Event count array.
+	//SetLength(EventFound, 1);
+	
 end; // of procedure ProgInit()
 
 
@@ -764,6 +837,8 @@ begin
 	//WriteLn(GetPathOfPidFile());
 	
 	sPathLpr := GetProgramFolder + '\' + gsUniqueSessionId + EXTENSION_LPR;
+	
+	// STEP 1 Export
 	iResultLogparser := RunLogparser(sPathLpr, 'Security');
 	if iResultLogparser = 0 then
 	begin
@@ -773,8 +848,13 @@ begin
 			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
 			
 			if gbDoConvert = true then
-				// The flag for conversion is true, do an conversion of LPR to SKV.
+			begin
+				// STEP 2 CONVERT; The flag for conversion is true, do an conversion of LPR to SKV.
 				DoConvert(sPathLpr);
+				ShowStatistics();
+			end;
+				
+			// STEP 3 MOVE
 		end
 		else
 		begin
