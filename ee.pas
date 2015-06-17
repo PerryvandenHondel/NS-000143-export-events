@@ -24,6 +24,7 @@
 		procedure EventIncreaseCount(SearchEventId: word)
 		procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word)
 		procedure EventRecordShow()
+		procedure MoveOutput(const sPathLpr: string; const sPathSkv: string)
 		procedure ProcessEvent(eventId: integer; la: TStringArray)
 		procedure ProcessLine(lineCount: integer; l: AnsiString)
 		procedure ProgDone()
@@ -34,6 +35,19 @@
 		procedure ShowStatistics()
 		procedure WriteDebug(s : string)
 
+	PROGRAM FLOW:
+		ProgInit
+		ProgRun
+			RunLogparser
+			DoConvert
+				ReadEventDefinitionFiles
+					ReadEventDefinitionFile
+				ProcessEvent
+					ProcessLine
+				ShowStatistics	
+			MoveOutput
+		ProgDone
+		
 }
 
 
@@ -278,6 +292,44 @@ begin
 		Writeln(IntToStr(i) + ' ' + IntToStr(EventArray[i].eventId) + ' ' + IntToStr(EventArray[i].osVersion) + ' ' + EventArray[i].description);
 	end;
 end; // of procedure EventRecordShow	
+
+
+procedure MoveOutput(const sPathLpr: string; const sPathSkv: string);
+var
+	sFolderSource: string;
+	sFolderDest: string;
+	sFilename: string;
+	c: string;
+begin
+	WriteLn('MoveOutput():');
+	WriteLn(' sPathLpr=', sPathLpr);
+	WriteLn(' sPathSkv=', sPathSkv);
+	
+	if FileExists(sPathLpr) = true then
+	begin
+		WriteLn('File ', sPathLpr, ' exists, start moving.');
+		
+		sFolderSource := ExtractFilePath(sPathLpr);
+		sFilename := ExtractFileName(sPathLpr);
+		
+		sFolderDest := '\\vm70as006.rec.nsint\GARBAGE\999999\' + GetCurrentComputerName() + '\'+ GetDateFs();
+		
+		WriteLn(sFolderSource);
+		WriteLn('Moving file: ', sFilename);
+		WriteLn('from folder: ', sFolderSource);
+		WriteLn('  to folder: ', sFolderDest);
+				
+		c := 'robocopy.exe "' + FixFolderRemove(sFolderSource) + '" "' + FixFolderRemove(sFolderDest) + '" "' + sFilename + '" /move /l /tee /log:' + sFilename + '.log';
+		
+		WriteLn(c);
+		
+	end;
+	
+	if FileExists(sPathSkv) = true then
+	begin
+		WriteLn('File ', sPathSkv, ' exists, start moving.');
+	end;
+end; // of procedure MoveOutput.
 
 
 procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean); // V06
@@ -738,19 +790,15 @@ begin
 end; // of procedure ProcessLine()
 
 
-procedure DoConvert(const sPathLpr: string);
+procedure DoConvert(const sPathLpr: string; const sPathSkv: string);
 {
 	Do a file conversion of a Logparser export (lpr) to a Splunk Key-Values (skv) file.
 }
 var
 	intCurrentLine: integer;		// Line counter
-	sPathSkv: string;
 	strLine: AnsiString;			// Buffer for the read line, can be longer then 255 chars so AnsiString;
 begin
 	WriteLn('DoConvert(): ' + sPathLpr);
-	
-	sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
-	WriteLn('sPathSkv=' + sPathSkv);
 	
 	// Read all event definition files in the array.
 	ReadEventDefinitionFiles();
@@ -803,6 +851,15 @@ begin
 	WriteLn(AlignLeft('Aligment left test', 80) + 'THE NEXT TEXT');
 	WriteLn(AlignLeft(176543, 80) + 'THE NEXT TEXT');
 	
+	MoveOutput('R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.lpr', 'R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.skv');
+	
+	WriteLn(FixFolderRemove('R:\folder\folder\folder'));
+	WriteLn(FixFolderRemove('R:\folder\folder\'));
+	
+	WriteLn(FixFolderAdd('R:\folder\folder\folder'));
+	WriteLn(FixFolderAdd('R:\folder\folder\'));
+	
+	
 end;
 	
 	
@@ -833,6 +890,7 @@ var
 	sPathLpr: string;
 	iResultLogparser: integer;
 	iFileSize: integer;
+	sPathSkv: string;
 begin
 	//WriteLn(GetPathOfPidFile());
 	
@@ -850,11 +908,18 @@ begin
 			if gbDoConvert = true then
 			begin
 				// STEP 2 CONVERT; The flag for conversion is true, do an conversion of LPR to SKV.
-				DoConvert(sPathLpr);
+				
+				sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
+				WriteLn('sPathSkv=' + sPathSkv);
+				
+				DoConvert(sPathLpr, sPathSkv);
 				ShowStatistics();
 			end;
-				
-			// STEP 3 MOVE
+			
+			// STEP 3 Move the out to the Splunk server for indexing and archiving.
+			MoveOutput(sPathLpr, sPathSkv);
+						
+
 		end
 		else
 		begin
@@ -885,7 +950,7 @@ end; // of procedure ProgDone()
 
 begin
 	ProgInit();
-	ProgRun();
-	//ProgTest();
+	//ProgRun();
+	ProgTest();
 	ProgDone();
 end. // of program ExportEvents
