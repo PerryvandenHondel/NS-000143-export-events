@@ -47,7 +47,8 @@
 					ProcessLine
 				ShowStatistics	
 			MoveOutput
-				RobocopyMove
+				RobocopyMove(LPR)
+				RobocopyMove(SKV)
 		ProgDone
 		
 }
@@ -75,7 +76,7 @@ const
 	CHAR_LF = 					#10;
 	CRLF = 						#13#10;
 	VERSION =					'01';
-	DESCRIPTION =				'ExportEvents';
+	DESCRIPTION =				'Export Events, convert and move to the central server';
 	ID = 						'143';
 	EXTENSION_LPR = 			'.lpr';
 	EXTENSION_SKV = 			'.skv';
@@ -83,8 +84,15 @@ const
 	SEPARATOR_CSV = 			';';			// Semicolon (;)
 	SEPARATOR_PSV = 			'|';			// Pipe Separator symbol (|)
 	STEP_MOD =					127;			// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
-	SHARE_LPR = 				'\\vm70as006.rec.nsint\GARBAGE';
-	SHARE_SKV = 				'\\vm70as006.rec.nsint\GARBAGE';
+	SHARE_LPR = 				'\\vm70as006.rec.nsint\000134-LPR';
+	SHARE_SKV = 				'\\vm70as006.rec.nsint\000134-SKV';
+	//SHARE_LPR = 				'\\vm70as006.rec.nsint\GARBAGE\000134-LPR'; // for testing
+	//SHARE_SKV = 				'\\vm70as006.rec.nsint\GARBAGE\000134-SKV'; // for testing
+	
+	
+	
+	//CMD_OPTION_CONVERT			'--convert';
+	
 	
 	
 type
@@ -328,7 +336,7 @@ begin
 		WriteLn('  from folder: ', sFolderSource);
 		WriteLn('    to folder: ', sFolderDest);
 	
-		c := 'robocopy.exe ' + EncloseDoubleQuote(sFolderSource) + ' ' + EncloseDoubleQuote(sFolderDest) + ' ' + EncloseDoubleQuote(sFilename) + '" /mov /tee /log:robocopy.log';
+		c := 'robocopy.exe ' + EncloseDoubleQuote(sFolderSource) + ' ' + EncloseDoubleQuote(sFolderDest) + ' ' + EncloseDoubleQuote(sFilename) + ' /mov';
 	
 		WriteLn;
 		WriteLn('Command:');
@@ -344,6 +352,7 @@ begin
 		// Run the sub process.
 		p.Execute;
 	
+		// Get the return code from the process.
 		r := p.ExitStatus;
 	end
 	else
@@ -366,7 +375,7 @@ begin
 	WriteLn(' sPathLpr=', sPathLpr);
 	WriteLn(' sPathSkv=', sPathSkv);
 	
-	sFolderDest := FixFolderAdd(SHARE_LPR) + '999999\' + GetDateFs(true) + '\' + GetCurrentComputerName();
+	sFolderDest := FixFolderAdd(SHARE_LPR) + GetDateFs(true) + '\' + GetCurrentComputerName();
 	e := RobocopyMove(sPathLpr, sFolderDest);
 	if e > 15 then
 		WriteLn('ERROR ', e, ' during moving of file ', sPathLpr, ' to ', sFolderDest)
@@ -374,7 +383,7 @@ begin
 		WriteLn('Succesfully moved ', sPathLpr);
 	
 	
-	sFolderDest := FixFolderAdd(SHARE_SKV) + '999999\' + GetDateFs(true) + '\' + GetCurrentComputerName();
+	sFolderDest := FixFolderAdd(SHARE_SKV) + GetDateFs(true) + '\' + GetCurrentComputerName();
 	e := RobocopyMove(sPathSkv, sFolderDest);
 	if e > 15 then
 		WriteLn('ERROR ', e, 'during moving of file ', sPathSkv, ' to ', sFolderDest)
@@ -934,13 +943,13 @@ begin
 	WriteLn('  ' +sProgName + ' [option(s)]');
 	WriteLn;
 	WriteLn('Options:');
-	WriteLn('  --convert-skv                  Convert the output to Splunk Key-Values format (created a .SKV file).');
+	WriteLn('  --convert                      Convert the output to Splunk Key-Values format (created a .SKV file).');
 	WriteLn('  --include-computer-accounts    Include the computer accounts (COMPUTERNAME$) in the Splunk output');
 	WriteLn('  --help, -h, -?                 Help');
 	WriteLn;
 	WriteLn('Example:');
 	WriteLn('  ' + sProgName + '                       Export but doe not convert to Splunk Key-Values output, missing --convert-skv option');
-	WriteLn('  ' + sProgName + ' --convert-skv         Export and convert to Splunk Key-Values output');
+	WriteLn('  ' + sProgName + ' --convert             Export and convert to Splunk Key-Values output');
 	WriteLn;
 end; // of procedure ProgramUsage()
 
@@ -995,7 +1004,7 @@ begin
 			//Writeln(i, ': ', ParamStr(i));
 			
 			case LowerCase(ParamStr(i)) of
-				'--convert-skv':
+				'--convert':
 					begin
 						gbDoConvert := true;
 						WriteLn('Option selected to convert the output to Splunk Key-Values (SKV) layout format');
