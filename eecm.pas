@@ -16,6 +16,7 @@
 		function GetPathLastRun(sEventLog: string): string
 		function LastRunGet(sEventLog: string): string
 		function ProcessThisEvent(e: integer): boolean
+		function RobocopyMove(const sPathSource: string; sFolderDest: string): integer;
 		function RunLogparser(sEventLog: string): integer
 		procedure DoConvert(const sPathLpr: string)
 		procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean)
@@ -46,6 +47,7 @@
 					ProcessLine
 				ShowStatistics	
 			MoveOutput
+				RobocopyMove
 		ProgDone
 		
 }
@@ -60,6 +62,7 @@ program ExportEvents;
 uses
 	Crt,
 	Classes, 
+	DateUtils,						// For SecondsBetween
 	Process, 
 	SysUtils,
 	USupportLibrary,
@@ -80,6 +83,8 @@ const
 	SEPARATOR_CSV = 			';';			// Semicolon (;)
 	SEPARATOR_PSV = 			'|';			// Pipe Separator symbol (|)
 	STEP_MOD =					127;			// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
+	SHARE_LPR = 				'\\vm70as006.rec.nsint\GARBAGE';
+	SHARE_SKV = 				'\\vm70as006.rec.nsint\GARBAGE';
 	
 	
 type
@@ -284,51 +289,97 @@ var
 	i: integer;
 begin
 	WriteLn();
-	WriteLn('EVENTARRAY:');
+	WriteLn('Events to process:');
 
 	for i := 0 to High(EventArray) do
 	begin
 		//Writeln(IntToStr(i) + Chr(9) + ' ' + IntToStr(EventArray[i].eventId) + Chr(9), EventArray[i].isActive, Chr(9) + IntToStr(EventArray[i].osVersion) + Chr(9) + EventArray[i].description);
-		Writeln(IntToStr(i) + ' ' + IntToStr(EventArray[i].eventId) + ' ' + IntToStr(EventArray[i].osVersion) + ' ' + EventArray[i].description);
+		Writeln(AlignRight(i, 6) + AlignRight(EventArray[i].eventId, 6) + AlignRight(EventArray[i].osVersion, 6) + '  ' + EventArray[i].description);
 	end;
 end; // of procedure EventRecordShow	
 
 
-procedure MoveOutput(const sPathLpr: string; const sPathSkv: string);
+function RobocopyMove(const sPathSource: string; sFolderDest: string): integer;
+{
+	Use Robocopy.exe to move a file.
+	Create folders that are needed is done by Robocopy.
+	
+		sPathSource			D:\folder\folder\file.ext
+		sFolderDest			D:\foldernew
+	
+	Returns the errorlevel of robocopy execution
+	An errorlevel > 15 is an error.
+}
 var
-	sFolderSource: string;
-	sFolderDest: string;
-	sFilename: string;
+	p: TProcess;
 	c: string;
+	sFilename: string;
+	sFolderSource: string;
+	r: integer;
+begin
+	if FileExists(sPathSource) = true then
+	begin
+		sFilename := ExtractFileName(sPathSource);
+		sFolderSource := FixFolderRemove(ExtractFilePath(sPathSource));
+		sFolderDest := FixFolderRemove(sFolderDest);
+
+		WriteLn('ROBOCOPYMOVE()');
+		WriteLn('  Moving file: ', sFilename);
+		WriteLn('  from folder: ', sFolderSource);
+		WriteLn('    to folder: ', sFolderDest);
+	
+		c := 'robocopy.exe ' + EncloseDoubleQuote(sFolderSource) + ' ' + EncloseDoubleQuote(sFolderDest) + ' ' + EncloseDoubleQuote(sFilename) + '" /mov /tee /log:robocopy.log';
+	
+		WriteLn;
+		WriteLn('Command:');
+		WriteLn(c);
+		WriteLn;
+		
+		// Setup the process to be executed.
+		p := TProcess.Create(nil);
+		p.Executable := 'cmd.exe'; 
+		p.Parameters.Add('/c ' + c);
+		p.Options := [poWaitOnExit];
+	
+		// Run the sub process.
+		p.Execute;
+	
+		r := p.ExitStatus;
+	end
+	else
+	begin
+		WriteLn('RobocopyMove(): Warning, can''t find file ', sPathSource);
+	end;
+	RobocopyMove := r;
+end; // of function RobocopyMove.
+
+
+procedure MoveOutput(const sPathLpr: string; const sPathSkv: string);
+{
+	Move the LPR and SKV files to the shares on the Splunk server.
+}
+var
+	sFolderDest: string;
+	e: integer;
 begin
 	WriteLn('MoveOutput():');
 	WriteLn(' sPathLpr=', sPathLpr);
 	WriteLn(' sPathSkv=', sPathSkv);
 	
-	if FileExists(sPathLpr) = true then
-	begin
-		WriteLn('File ', sPathLpr, ' exists, start moving.');
-		
-		sFolderSource := ExtractFilePath(sPathLpr);
-		sFilename := ExtractFileName(sPathLpr);
-		
-		sFolderDest := '\\vm70as006.rec.nsint\GARBAGE\999999\' + GetCurrentComputerName() + '\'+ GetDateFs();
-		
-		WriteLn(sFolderSource);
-		WriteLn('Moving file: ', sFilename);
-		WriteLn('from folder: ', sFolderSource);
-		WriteLn('  to folder: ', sFolderDest);
-				
-		c := 'robocopy.exe "' + FixFolderRemove(sFolderSource) + '" "' + FixFolderRemove(sFolderDest) + '" "' + sFilename + '" /move /l /tee /log:' + sFilename + '.log';
-		
-		WriteLn(c);
-		
-	end;
+	sFolderDest := FixFolderAdd(SHARE_LPR) + '999999\' + GetDateFs(true) + '\' + GetCurrentComputerName();
+	e := RobocopyMove(sPathLpr, sFolderDest);
+	if e > 15 then
+		WriteLn('ERROR ', e, ' during moving of file ', sPathLpr, ' to ', sFolderDest)
+	else
+		WriteLn('Succesfully moved ', sPathLpr);
 	
-	if FileExists(sPathSkv) = true then
-	begin
-		WriteLn('File ', sPathSkv, ' exists, start moving.');
-	end;
+	
+	sFolderDest := FixFolderAdd(SHARE_SKV) + '999999\' + GetDateFs(true) + '\' + GetCurrentComputerName();
+	e := RobocopyMove(sPathSkv, sFolderDest);
+	if e > 15 then
+		WriteLn('ERROR ', e, 'during moving of file ', sPathSkv, ' to ', sFolderDest)
+	else
+		WriteLn('Succesfully moved ', sPathSkv);
 end; // of procedure MoveOutput.
 
 
@@ -618,7 +669,13 @@ begin
 	//sPath := GetPathExport(sEventLog, sDateTimeLast);
 	
 	
-	WriteLn('RunLogparser(): Exporting events from ''' + sEventLog + ''' with date time range from ' + sDateTimeLast + ' - ' + sDateTimeNow + ' into export file ''' + sPathLpr + '''.');
+	WriteLn('RunLogparser():');
+	WriteLn('  Exporting events from Event Log : ' + sEventLog);
+	WriteLn('                        from date : ' + sDateTimeLast);
+	WriteLn('                             upto : ' + sDateTimeNow);
+	Writeln('                 into export file : ' + sPathLpr);
+	
+	//WriteLn('SECONDS=', SecondsBetween(StrToDateTime(sDateTimeLast), StrToDateTime(sDateTimeNow)));
 	
 	//WriteLn('sDateTimeLast=', sDateTimeLast);
 	//WriteLn('sDateTimeNow=', sDateTimeNow);
@@ -840,8 +897,8 @@ begin
 	//DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
 	//DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
 	
-	
-	WriteLn('                                                                                                   1');
+	{
+	//WriteLn('                                                                                                   1');
 	WriteLn('         1         2         3         4         5         6         7         8         9         0');
 	WriteLn('1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890');
 	WriteLn(AlignRight('Aligment right test', 80));
@@ -850,21 +907,69 @@ begin
 	WriteLn(AlignRight('Aligmen jhksgkj afgkjhafd gjkha gfdjhk ajkgdft test', 20));
 	WriteLn(AlignLeft('Aligment left test', 80) + 'THE NEXT TEXT');
 	WriteLn(AlignLeft(176543, 80) + 'THE NEXT TEXT');
+	}
+	//MoveOutput('R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.lpr', 'R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.skv');
 	
-	MoveOutput('R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.lpr', 'R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.skv');
+	//WriteLn(FixFolderRemove('R:\folder\folder\folder'));
+	//WriteLn(FixFolderRemove('R:\folder\folder\'));
 	
-	WriteLn(FixFolderRemove('R:\folder\folder\folder'));
-	WriteLn(FixFolderRemove('R:\folder\folder\'));
+	//WriteLn(FixFolderAdd('R:\folder\folder\folder'));
+	//WriteLn(FixFolderAdd('R:\folder\folder\'));
 	
-	WriteLn(FixFolderAdd('R:\folder\folder\folder'));
-	WriteLn(FixFolderAdd('R:\folder\folder\'));
-	
+	WriteLn(EncloseDoubleQuote('test string1'));
+	WriteLn(EncloseDoubleQuote('"test string2'));
+	WriteLn(EncloseDoubleQuote('test string3"'));
+	WriteLn(EncloseDoubleQuote('"test string4"'));
 	
 end;
 	
 	
-procedure ProgInit();
+procedure ProgramUsage();
+var
+	sProgName: string;
 begin
+	sProgName := GetProgramName();
+	WriteLn;
+	WriteLn('Usage:');
+	WriteLn('  ' +sProgName + ' [option(s)]');
+	WriteLn;
+	WriteLn('Options:');
+	WriteLn('  --convert-skv                  Convert the output to Splunk Key-Values format (created a .SKV file).');
+	WriteLn('  --include-computer-accounts    Include the computer accounts (COMPUTERNAME$) in the Splunk output');
+	WriteLn('  --help, -h, -?                 Help');
+	WriteLn;
+	WriteLn('Example:');
+	WriteLn('  ' + sProgName + '                       Export but doe not convert to Splunk Key-Values output, missing --convert-skv option');
+	WriteLn('  ' + sProgName + ' --convert-skv         Export and convert to Splunk Key-Values output');
+	WriteLn;
+end; // of procedure ProgramUsage()
+
+
+procedure ProgramTitle();
+begin
+	WriteLn();
+	WriteLn(StringOfChar('-', 120));
+	WriteLn(UpperCase(GetProgramName()) + ' -- Version: ' + VERSION + ' -- Unique ID: ' + ID);
+	WriteLn();
+	WriteLn(DESCRIPTION);
+	WriteLn(StringOfChar('-', 120));	
+end; // of procedure ProgramTitle()
+
+
+procedure ProgDone();
+begin
+	// Delete the Process ID file.
+	DeleteFile(gsPathPid);
+	Halt(0);
+end; // of procedure ProgDone()
+
+	
+procedure ProgInit();
+var
+	i: integer;
+begin
+	ProgramTitle();
+
 	// Get the computer name of where this program is running.
 	gsComputerName := GetCurrentComputerName();
 	
@@ -874,7 +979,8 @@ begin
 	// Create a PID (Process ID) file for the run of this program.
 	gsPathPid := GetPathOfPidFile();
 	
-	gbDoConvert := true;
+	// Dot not convert the LPR file to SKV.
+	gbDoConvert := false;
 	
 	blnSkipComputerAccount := true;
 	blnDebug := false;
@@ -882,6 +988,31 @@ begin
 	// Initialize the Event count array.
 	//SetLength(EventFound, 1);
 	
+	if ParamCount > 0 then
+	begin
+		for i := 1 to ParamCount do
+		begin
+			//Writeln(i, ': ', ParamStr(i));
+			
+			case LowerCase(ParamStr(i)) of
+				'--convert-skv':
+					begin
+						gbDoConvert := true;
+						WriteLn('Option selected to convert the output to Splunk Key-Values (SKV) layout format');
+					end;
+				'--include-computer-accounts':
+					begin
+						blnSkipComputerAccount := false;
+						WriteLn('Option selected to include computer accounts in the Splunk conversion.');
+					end;
+				'--help', '-h', '-?':
+					begin
+						ProgramUsage();
+						ProgDone()
+					end;
+			end; // of case
+		end; // of for
+	end;
 end; // of procedure ProgInit()
 
 
@@ -905,12 +1036,13 @@ begin
 		begin
 			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
 			
+			// Build the path to the SKV output file.
+			sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
+			WriteLn('sPathSkv=' + sPathSkv);
+
 			if gbDoConvert = true then
 			begin
 				// STEP 2 CONVERT; The flag for conversion is true, do an conversion of LPR to SKV.
-				
-				sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
-				WriteLn('sPathSkv=' + sPathSkv);
 				
 				DoConvert(sPathLpr, sPathSkv);
 				ShowStatistics();
@@ -918,8 +1050,6 @@ begin
 			
 			// STEP 3 Move the out to the Splunk server for indexing and archiving.
 			MoveOutput(sPathLpr, sPathSkv);
-						
-
 		end
 		else
 		begin
@@ -941,16 +1071,9 @@ begin
 end; // of procedure ProgRun()
 
 
-procedure ProgDone();
-begin
-	// Delete the Process ID file.
-	DeleteFile(gsPathPid);
-end; // of procedure ProgDone()
-
-
 begin
 	ProgInit();
-	//ProgRun();
-	ProgTest();
+	ProgRun();
+	//ProgTest();
 	ProgDone();
 end. // of program ExportEvents
