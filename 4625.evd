@@ -1,5 +1,6 @@
 4625;An account failed to log on;2008
 4625;acc;8;TRUE;Account
+4625;lfc;12;TRUE;Logon Failure Code
 4625;lt;13;FALSE;Logon Type
 4625;ap;15;TRUE;Authentication Protocol
 4625;ip;22;TRUE;IP Address
