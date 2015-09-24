@@ -68,8 +68,9 @@ uses
 	SysUtils,
 	USupportLibrary,
 	UTextFile;
-  
- 
+
+
+
 const
 	TAB = 						#9;
 	CHAR_CR =					#13;
@@ -84,8 +85,10 @@ const
 	SEPARATOR_CSV = 			';';			// Semicolon (;)
 	SEPARATOR_PSV = 			'|';			// Pipe Separator symbol (|)
 	STEP_MOD =					127;			// Step modulator for echo mod, use a off-number, not rounded as 10, 15, 100, 250 etc. to see the changes.
-	SHARE_LPR = 				'\\vm70as006.rec.nsint\000134-LPR';
-	SHARE_SKV = 				'\\vm70as006.rec.nsint\000134-SKV';
+	SHARE_LPR = 				'\\10.4.222.20\000134-LPR';
+	SHARE_SKV = 				'\\10.4.222.20\000134-SKV';
+	//SHARE_SKV = 				'\\vm70as006.rec.nsint\000134-SKV';
+	//SHARE_LPR = 				'\\vm70as006.rec.nsint\000134-LPR';
 	//SHARE_LPR = 				'\\vm70as006.rec.nsint\GARBAGE\000134-LPR'; // for testing
 	//SHARE_SKV = 				'\\vm70as006.rec.nsint\GARBAGE\000134-SKV'; // for testing
 	
@@ -128,13 +131,15 @@ var
 	intCountAccountComputer: longint;
 
 
+
 procedure WriteDebug(s : string);
 begin
 	if blnDebug = true then
 		Writeln('DEGUG:', Chr(9), s);
 end;  // of procedure WriteDebug	
-	
-	
+
+
+
 procedure ShowStatistics();
 const
 	W_EVENT = 10;
@@ -185,7 +190,8 @@ begin
 	WriteLn;
 end; // of procedure ShowStatistics
 
-	
+
+
 function GetKeyName(eventId: integer; position: integer): string;
 {
 	Returns the KeyName of a valid position
@@ -216,6 +222,7 @@ begin
 end; // of function GetKeyName
 
 
+
 procedure EventIncreaseCount(SearchEventId: word);
 var
 	newCount: integer;
@@ -230,6 +237,7 @@ begin
 		end; // of procedure EventIncreaseCount
 	end;
 end; // of procedure EventIncreaseCount
+
 
 
 function GetEventType(eventType: integer): string;
@@ -262,6 +270,7 @@ begin
 end; // of function GetEventType
 
 
+
 function GetKeyType(eventId: integer; position: integer): boolean;
 {
 	Returns the KeyType of a valid position
@@ -290,8 +299,9 @@ begin
 	end;
 	GetKeyType := r;
 end; // of function GetKeyType	
-	
-	
+
+
+
 procedure EventRecordShow();
 var
 	i: integer;
@@ -305,6 +315,7 @@ begin
 		Writeln(AlignRight(i, 6) + AlignRight(EventArray[i].eventId, 6) + AlignRight(EventArray[i].osVersion, 6) + '  ' + EventArray[i].description);
 	end;
 end; // of procedure EventRecordShow	
+
 
 
 function RobocopyMove(const sPathSource: string; sFolderDest: string): integer;
@@ -348,6 +359,7 @@ begin
 		p.Executable := 'cmd.exe'; 
 		p.Parameters.Add('/c ' + c);
 		p.Options := [poWaitOnExit];
+		//p.Options := [poWaitOnExit, poUsePipes];
 	
 		// Run the sub process.
 		p.Execute;
@@ -361,6 +373,7 @@ begin
 	end;
 	RobocopyMove := r;
 end; // of function RobocopyMove.
+
 
 
 procedure MoveOutput(const sPathLpr: string; const sPathSkv: string);
@@ -390,6 +403,7 @@ begin
 	else
 		WriteLn('Succesfully moved ', sPathSkv);
 end; // of procedure MoveOutput.
+
 
 
 procedure EventDetailRecordAdd(newEventId: integer; newKeyName: string; newPostion: integer; newIsString: boolean); // V06
@@ -423,7 +437,8 @@ begin
 	
 end; // of procedure EventDetailRecordAdd
 
-	
+
+
 procedure EventRecordAdd(newEventId: word; newDescription: string; newOsVersion: word); // V06
 {
 
@@ -450,8 +465,9 @@ begin
 	EventArray[size].count := 0;
 	//EventArray[size].isActive := newIsActive;
 end; // of procedure EventRecordAdd
-	
-	
+
+
+
 procedure ReadEventDefinitionFile(p : string);
 var
 	//strEvent: string;
@@ -513,6 +529,7 @@ begin
 end; // of procedure ReadEventDefinitionFile
 
 
+
 procedure ReadEventDefinitionFiles();
 {
 	Read the .EVD files and place the values is an array.
@@ -539,50 +556,89 @@ begin
 	FindClose(sr);
 	Writeln ('Found ', count, ' event definitions to process.');
 end; // of procedure ReadAllEventDefinitions	
-	
-	
+
+
+
 function ConvertProperDateTimeToDateTimeFs(sDateTime: string): string;
 //
 // Convert a proper date time to a date time to be used as a file name (File System).
 //
-// Converted:	YYYY-MM-DD HH:MM:SS  >> YYYYMMDD-HHMMSS
+// Converted:	YYYY-MM-DD HH:MM:SS  >> YYYYMMDDHHMMSS
 //
 var
 	r: string;
 begin
 	r := StringReplace(sDateTime, '-', '', [rfIgnoreCase, rfReplaceAll]);
 	r := StringReplace(r, ':', '', [rfIgnoreCase, rfReplaceAll]);
-	r := StringReplace(r, ' ', '-', [rfIgnoreCase, rfReplaceAll]);
+	r := StringReplace(r, ' ', '', [rfIgnoreCase, rfReplaceAll]);
 	
 	ConvertProperDateTimeToDateTimeFs := r;
 end; // of function ConvertProperDateTimeToDateTimeFs
+
+
+
+function GetTrailingNumberFromString(s: string): string;
+{
+	Returns the trailing numbers of a string.
 	
+	VM00AS3456 > 3456
+	VM43445TGY > Nothing!
+}
+var
+	x: integer;
+	c: char;
+	blnAttach: boolean;
+	r: string;
+begin
+	blnAttach := true;
+	r := '';
 	
-function GetPathExport(sEventLog: string; sDateTime: string): string;
-//
-// Return a path to an export file in format:
-//	folder\computer-eventlog-yyyymmdd-hhmmss-filledwithchars
-//
-//	sEventLog:		Event log name
-//	
-//
-const
-	FILE_NAME_MAX =		16;
+	//WriteLn('GetTrailingNumberFromStrings():', s);
+	
+	//WriteLn(Length(s));
+	
+	for x := Length(s) downto 1 do
+	begin
+		c := s[x];
+		//WriteLn(x, ':', '     ', s[x]);
+		if (Ord(c) < 48) or (Ord(c) > 57) then
+		begin
+			//WriteLn('NOT A NUMBER');
+			blnAttach := false;
+		end; // of if
+		
+		if blnAttach then
+			r := c + r;
+	end; // of for
+	GetTrailingNumberFromString := r;
+end;
+
+
+
+function GetPathExport(sDateTime: string): string;
+{
+	Return a path to an export file in format:
+	
+	1) lastnumber of the computer (VM00AS0234 > 023)
+	2) Dash
+	3) YYYYMMDDHHMMSS
+	4) Dash
+	5) 4 randomly generated characters.
+}
+//const
+//	FILE_NAME_MAX =		32;
 var
 	r: string;
 	//t: string;
 begin
-	//r := gsComputerName + '-';
-	//r := r + sEventLog + '-';
-	//r := r + ConvertProperDateTimeToDateTimeFs(sDateTime) + '-';
-	
-	//t := GetRandomString(FILE_NAME_MAX - Length(r));
-	r := GetRandomString(FILE_NAME_MAX);
-	 
-	//r := r + t;
+	r := GetTrailingNumberFromString(gsComputerName) + '-'; 
+	r := r + ConvertProperDateTimeToDateTimeFs(sDateTime) + '-';
+	//r := r + GetRandomString(FILE_NAME_MAX - Length(r));
+	r := r + GetRandomString(4);
 	GetPathExport := GetProgramFolder() + '\' + r;
 end; // of function GetPathExport
-	
+
+
 
 function GetPathLastRun(sEventLog: string): string;
 {
@@ -630,6 +686,7 @@ begin
 end;
 
 
+
 function LastRunPut(sEventLog: string): string;
 {
 	Put the current date time using Now() in the file sPath.
@@ -658,7 +715,8 @@ begin
 end; // of function LastRunPut.
 
 
-function RunLogparser(sPathLpr: string; sEventLog: string): integer;
+
+function RunLogparser(sPathLpr: string; sEventLog: string; sDateTimeLast: string; sDateTimeNow: string): integer;
 //
 //	Run Logparser.exe for a specfic Event Log.
 //
@@ -667,17 +725,12 @@ function RunLogparser(sPathLpr: string; sEventLog: string): integer;
 var
 	p: TProcess;	// Process
 	c: AnsiString;		// Command Line
-	sDateTimeLast: string;
-	sDateTimeNow: string;
+	//sDateTimeLast: string;
+	//sDateTimeNow: string;
 begin
 	WriteLn;
 	//WriteLn('RunLogparser(): ' + sEventLog);
 
-	sDateTimeLast := LastRunGet(sEventLog);
-	sDateTimeNow := LastRunPut(sEventLog);
-	//sPath := GetPathExport(sEventLog, sDateTimeLast);
-	
-	
 	WriteLn('RunLogparser():');
 	WriteLn('  Exporting events from Event Log : ' + sEventLog);
 	WriteLn('                        from date : ' + sDateTimeLast);
@@ -710,13 +763,16 @@ begin
 	p := TProcess.Create(nil);
 	p.Executable := 'cmd.exe'; 
     p.Parameters.Add('/c ' + c);
-	p.Options := [poWaitOnExit];
+	// Check if the output is cleaner on the screen.
+	p.Options := [poWaitOnExit, poUsePipes];
+	// OLD: p.Options := [poWaitOnExit];
 	
 	// Run the sub process.
 	p.Execute;
 	
 	RunLogparser := p.ExitStatus;
 end; // of procedure RunLogparser
+
 
 
 procedure ProcessEvent(eventId: integer; la: TStringArray);
@@ -784,7 +840,6 @@ end; // of function ProcessEvent
 
 
 
-
 function ProcessThisEvent(e: integer): boolean;
 {
 	Read the events from the EventArray.
@@ -818,6 +873,7 @@ begin
 	//WriteLn('ShouldEventBeProcessed():', Chr(9), e, Chr(9), r);
 	ProcessThisEvent := r;
 end;
+
 
 
 procedure ProcessLine(lineCount: integer; l: AnsiString);
@@ -854,6 +910,7 @@ begin
 		SetLength(lineArray, 0);
 	end; // if Length(l) > 0 then
 end; // of procedure ProcessLine()
+
 
 
 procedure DoConvert(const sPathLpr: string; const sPathSkv: string);
@@ -901,38 +958,7 @@ begin
 end;
 
 
-procedure ProgTest();
-begin
-	//DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
-	//DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
-	
-	{
-	//WriteLn('                                                                                                   1');
-	WriteLn('         1         2         3         4         5         6         7         8         9         0');
-	WriteLn('1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890');
-	WriteLn(AlignRight('Aligment right test', 80));
-	WriteLn(AlignRight(1832644, 80));
-	
-	WriteLn(AlignRight('Aligmen jhksgkj afgkjhafd gjkha gfdjhk ajkgdft test', 20));
-	WriteLn(AlignLeft('Aligment left test', 80) + 'THE NEXT TEXT');
-	WriteLn(AlignLeft(176543, 80) + 'THE NEXT TEXT');
-	}
-	//MoveOutput('R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.lpr', 'R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.skv');
-	
-	//WriteLn(FixFolderRemove('R:\folder\folder\folder'));
-	//WriteLn(FixFolderRemove('R:\folder\folder\'));
-	
-	//WriteLn(FixFolderAdd('R:\folder\folder\folder'));
-	//WriteLn(FixFolderAdd('R:\folder\folder\'));
-	
-	WriteLn(EncloseDoubleQuote('test string1'));
-	WriteLn(EncloseDoubleQuote('"test string2'));
-	WriteLn(EncloseDoubleQuote('test string3"'));
-	WriteLn(EncloseDoubleQuote('"test string4"'));
-	
-end;
-	
-	
+
 procedure ProgramUsage();
 var
 	sProgName: string;
@@ -954,6 +980,7 @@ begin
 end; // of procedure ProgramUsage()
 
 
+
 procedure ProgramTitle();
 begin
 	WriteLn();
@@ -965,6 +992,7 @@ begin
 end; // of procedure ProgramTitle()
 
 
+
 procedure ProgDone();
 begin
 	// Delete the Process ID file.
@@ -972,7 +1000,8 @@ begin
 	Halt(0);
 end; // of procedure ProgDone()
 
-	
+
+
 procedure ProgInit();
 var
 	i: integer;
@@ -1025,19 +1054,28 @@ begin
 end; // of procedure ProgInit()
 
 
+
 procedure ProgRun();
 var
 	sPathLpr: string;
 	iResultLogparser: integer;
 	iFileSize: integer;
 	sPathSkv: string;
+	strEventLog: string;
+	sDateTimeLast: string;
+	sDateTimeNow: string;
 begin
 	//WriteLn(GetPathOfPidFile());
 	
-	sPathLpr := GetProgramFolder + '\' + gsUniqueSessionId + EXTENSION_LPR;
-	
 	// STEP 1 Export
-	iResultLogparser := RunLogparser(sPathLpr, 'Security');
+	strEventLog := 'Security';
+	sDateTimeLast := LastRunGet(strEventLog);
+	sDateTimeNow := LastRunPut(strEventLog);
+	
+	// Issue-1: file name change
+	sPathLpr := GetPathExport(sDateTimeLast) + EXTENSION_LPR;
+	
+	iResultLogparser := RunLogparser(sPathLpr, strEventLog, sDateTimeLast, sDateTimeNow);
 	if iResultLogparser = 0 then
 	begin
 		iFileSize := GetFileSizeInBytes(sPathLpr);
@@ -1078,6 +1116,58 @@ begin
 	//WriteLn(ConvertProperDateTimeToDateTimeFs('2015-06-11 12:09:56'));
 	//WriteLn(GetPathExport('Security', '2015-06-11 12:09:56'));
 end; // of procedure ProgRun()
+
+
+
+procedure ProgTest();
+var
+	s: string;
+begin
+	//DoConvert('R:\GitRepos\NS-000143-export-events\jgiXefFeh9bwcdDL.lpr');
+	//DoConvert('R:\GitRepos\NS-000143-export-events\Bf0WY9jupV3UgT92.lpr');
+	
+	{
+	//WriteLn('                                                                                                   1');
+	WriteLn('         1         2         3         4         5         6         7         8         9         0');
+	WriteLn('1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890');
+	WriteLn(AlignRight('Aligment right test', 80));
+	WriteLn(AlignRight(1832644, 80));
+	
+	WriteLn(AlignRight('Aligmen jhksgkj afgkjhafd gjkha gfdjhk ajkgdft test', 20));
+	WriteLn(AlignLeft('Aligment left test', 80) + 'THE NEXT TEXT');
+	WriteLn(AlignLeft(176543, 80) + 'THE NEXT TEXT');
+	}
+	//MoveOutput('R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.lpr', 'R:\GitRepos\NS-000143-export-events\HbOSZUtfvvsBWn86.skv');
+	
+	//WriteLn(FixFolderRemove('R:\folder\folder\folder'));
+	//WriteLn(FixFolderRemove('R:\folder\folder\'));
+	
+	//WriteLn(FixFolderAdd('R:\folder\folder\folder'));
+	//WriteLn(FixFolderAdd('R:\folder\folder\'));
+	
+	{WriteLn(EncloseDoubleQuote('test string1'));
+	WriteLn(EncloseDoubleQuote('"test string2'));
+	WriteLn(EncloseDoubleQuote('test string3"'));
+	WriteLn(EncloseDoubleQuote('"test string4"'));
+	}
+	
+	s := 'VM00AS2344';
+	WriteLn('RETURED: ', GetTrailingNumberFromString(s));
+	WriteLn;
+	
+	s := 'VM00AS2';
+	WriteLn('RETURED: ', GetTrailingNumberFromString(s));
+	WriteLn;
+	
+	
+	s := 'VM00ASUYUU';
+	WriteLn('RETURED: ', GetTrailingNumberFromString(s));
+	WriteLn;
+	
+	WriteLn(GetPathExport('2014-03-23 09:12:34'));
+	
+end;
+
 
 
 begin
