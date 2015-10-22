@@ -129,7 +129,7 @@ var
 	blnDebug: boolean;
 	blnSkipComputerAccount: boolean;
 	intCountAccountComputer: longint;
-
+	eventIdPos: integer;
 
 
 procedure WriteDebug(s : string);
@@ -649,6 +649,7 @@ begin
 end; // of function GetPathLastRun
 
 
+
 function LastRunGet(sEventLog: string): string;
 {
 	Returns the date and time in proper format YYYY-MM-DD HH:MM:SS back from a file in variable sPath
@@ -744,11 +745,15 @@ begin
 	//WriteLn('sPathLpr=', sPathLpr);
 	
 	// logparser.exe -i:EVT -o:TSV 
-	// "SELECT TimeGenerated,EventId,EventType,REPLACE_STR(Strings,'\u000d\u000a','|') AS Strings FROM \\NS00DC066\Security WHERE TimeGenerated>'2015-06-02 13:48:00' AND TimeGenerated<='2015-06-02 13:48:46'" -stats:OFF -oSeparator:"|" 
+	// "SELECT TimeGenerated,EventLog,ComputerName,EventId,EventType,REPLACE_STR(Strings,'\u000d\u000a','|') AS Strings FROM \\NS00DC066\Security WHERE TimeGenerated>'2015-06-02 13:48:00' AND TimeGenerated<='2015-06-02 13:48:46'" -stats:OFF -oSeparator:"|" 
 	// >"D:\ADBEHEER\Scripts\000134\export\NS00DC066\20150602-134800-72Od1Q7jYYJsZqFW.lpr"
-
+	//
+	
+	// Added export fields (Issue2):
+	// - EventLog
+	// - ComputerName
 	c := 'logparser.exe -i:EVT -o:TSV ';
-	c := c + '"SELECT TimeGenerated,EventId,EventType,REPLACE_STR(Strings,''\u000d\u000a'',''|'') AS Strings ';
+	c := c + '"SELECT TimeGenerated,EventLog,ComputerName,EventId,EventType,REPLACE_STR(Strings,''\u000d\u000a'',''|'') AS Strings ';
 	c := c + 'FROM '+ sEventLog + ' ';
 	c := c + 'WHERE TimeGenerated>''' + sDateTimeLast + ''' AND TimeGenerated<=''' + sDateTimeNow + '''" ';
 	c := c + '-stats:OFF -oSeparator:"|" ';
@@ -764,8 +769,8 @@ begin
 	p.Executable := 'cmd.exe'; 
     p.Parameters.Add('/c ' + c);
 	// Check if the output is cleaner on the screen.
-	p.Options := [poWaitOnExit, poUsePipes];
-	// OLD: p.Options := [poWaitOnExit];
+	//p.Options := [poWaitOnExit, poUsePipes];
+	p.Options := [poWaitOnExit];
 	
 	// Run the sub process.
 	p.Execute;
@@ -786,7 +791,7 @@ var
 begin
 	WriteDebug('-----------------------');
 	WriteDebug('ProcessEvent(): ' + IntToStr(eventId));
-	buffer := la[0] + ' ' + GetEventType(StrToInt(la[2])) + ' eid=' + IntToStr(eventId) + ' ';
+	buffer := la[0] + ' ' + GetEventType(StrToInt(la[4])) + ' eid=' + IntToStr(eventId) + ' ';
 	
 	//EventFoundAdd(eventId);
 	
@@ -883,12 +888,34 @@ procedure ProcessLine(lineCount: integer; l: AnsiString);
 var
 	lineArray: TStringArray;
 	eventId: integer;
+	x: integer;
 begin
-	if Pos('TimeGenerated|', l) > 0 then
-		Exit;	//	When the text 'TimeGenerated|' occurs in the line it's a header line, skip it by exiting this procedure.
-		
-	if Length(l) > 0 then
+	//WriteLn(lineCount, ':', l);
+	
+	//if (Pos('TimeGenerated|', l) > 0 then
+	if lineCount = 1 then
+		Exit;
+	{
 	begin
+		Writeln('>>HEADER<<');
+		// Issue2: this is the header line, find the eventId position.
+		eventIdPos := 0;
+		
+		SetLength(lineArray, 0);
+		lineArray := SplitString(l, SEPARATOR_PSV);
+		for x:= 0 to Length(lineArray) - 1 do
+		begin
+			//WriteLn(x, ': ', lineArray[x]);
+			if CompareText(lineArray[x], 'EventId') = 0 then
+				eventIdPos := x;
+		end;
+		//Exit;	//	When the text 'TimeGenerated|' occurs in the line it's a header line, skip it by exiting this procedure.
+		WriteLn('*** FOUND EventID AT HEADER LINE POSITION: ', eventIdPos);
+	end;}
+	
+	if (Length(l) > 0) and (lineCount > 1) then
+	begin
+		//Writeln('>>DATA<<');
 		//WriteLn(lineCount, ' ', l);
 
 		// Set the lineArray on 0 to clear it
@@ -898,7 +925,11 @@ begin
 		lineArray := SplitString(l, SEPARATOR_PSV);
 		
 		// Obtain the eventId from the lineArray on position 4.
-		eventId := StrToInt(lineArray[1]);	// The Event Id is always found at the 1st position
+		// The Event Id is always found at the 1st position
+		//eventId := StrToInt(lineArray[1]);	
+		
+		// Issue2, user the eventIdPos to find the EventId value in the line
+		eventId := StrToInt(lineArray[3]);	
 		//Writeln(lineCount, Chr(9), l);
 		//WriteLn(Chr(9), eventId);
 		
@@ -909,6 +940,7 @@ begin
 		end;
 		SetLength(lineArray, 0);
 	end; // if Length(l) > 0 then
+	//WriteLn;
 end; // of procedure ProcessLine()
 
 
@@ -948,7 +980,7 @@ begin
 		ProcessLine(intCurrentLine, strLine);
 		//WriteLn(intCurrentLine, '|', strLine);
 			
-		WriteMod(intCurrentLine, STEP_MOD); // In USupport Library
+		WriteMod(intCurrentLine, STEP_MOD, 'events'); // In USupport Library
 	until tfLpr.GetEof();
 	tfLpr.CloseFile();
 	
@@ -1083,7 +1115,7 @@ begin
 		begin
 			WriteLn('Logparser output file ' + sPathLpr + ' contains data, start converting.');
 			
-			// Build the path to the SKV output file.
+			// Build the path to the SKV output file. Change the extension.
 			sPathSkv := StringReplace(sPathLpr, EXTENSION_LPR, EXTENSION_SKV, [rfIgnoreCase, rfReplaceAll]);
 			WriteLn('sPathSkv=' + sPathSkv);
 
